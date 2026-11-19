@@ -323,7 +323,7 @@ footer{position:relative;z-index:1;text-align:center;font-size:11.5px;color:var(
           <label>Your dataset</label>
           <div class="set-row">
             <div class="set-badge" id="setBadge">?</div>
-            <div class="set-blurb" id="codeNote">One of six datasets is assigned to your team when you begin. Every team gets the same questions — but the numbers differ, so an answer borrowed from another team will be wrong.</div>
+            <div class="set-blurb" id="codeNote">One of six datasets is assigned to your team when you register. Every team gets the same questions — but the numbers differ, so an answer borrowed from another team will be wrong.</div>
           </div>
         </div>
         <div class="field">
@@ -335,7 +335,8 @@ footer{position:relative;z-index:1;text-align:center;font-size:11.5px;color:var(
         <div id="memberList"></div>
         <div class="form-error" id="formError" role="alert"></div>
         <div id="eventClockBanner"></div>
-        <button class="btn btn-block" id="startBtn">Begin the Hunt →</button>
+        <button class="btn btn-block" id="startBtn">Register team →</button>
+        <button class="btn secondary btn-block" id="unregBtn" style="display:none;margin-top:10px">✏️ Edit team details</button>
         <button class="btn secondary btn-block" id="howToPlayBtn" style="margin-top:10px">How to play</button>
       </div>
 
@@ -1822,7 +1823,7 @@ document.addEventListener('keydown',e=>{
 /* ================= SCORE / HUD / TIMER ================= */
 function changeScore(delta){
   if(!delta) return;
-  state.score=Math.max(0,state.score+delta);
+  state.score=state.score+delta;   /* penalties always count; final score is floored at 0 */
   updateHud(); saveProgress();
   const chip=$('scoreChip'); chip.classList.remove('score-pop'); void chip.offsetWidth; chip.classList.add('score-pop');
   const r=chip.getBoundingClientRect(), f=document.createElement('div');
@@ -1956,10 +1957,51 @@ function validateRegistration(){
   state.team=team; state.members=ms.map(m=>({name:m.name,email:m.email})); state.email=state.members[0].email;
   return true;
 }
+/* ================= REGISTRATION → HOST STARTS EVERYONE =================
+   With a host console connected, teams REGISTER and wait. The organiser sees
+   every registered team (and its dataset set) and presses Start; every
+   waiting game then opens by itself. Without a host console the button
+   simply starts the run, as before. */
+const REG_KEY='datahunt_registration_v1';
+const REG={on:false,beatId:null};
+const hostControlled=()=>!!resolveSheetUrl();
+function saveReg(){ try{ localStorage.setItem(REG_KEY,JSON.stringify({team:state.team,members:state.members,variant:state.variant,at:Date.now()})); }catch(e){} }
+function loadReg(){ try{ return JSON.parse(localStorage.getItem(REG_KEY)||'null'); }catch(e){ return null; } }
+function clearReg(){ try{ localStorage.removeItem(REG_KEY); }catch(e){} }
+function lockForm(on){
+  $('teamNameInput').disabled=on;
+  memberList.querySelectorAll('input').forEach(el=>el.disabled=on);
+  $('unregBtn').style.display=on?'block':'none';
+}
+function registerTeam(){
+  REG.on=true; saveReg(); lockForm(true); showFormError('');
+  sendHeartbeat('registered');
+  clearInterval(REG.beatId); REG.beatId=setInterval(()=>{ if(REG.on && !state.started) sendHeartbeat('registered'); },15000);
+  fetchHostConfig();
+  maybeAutoStart();
+}
+function maybeAutoStart(){
+  if(!REG.on || state.started || state.finished) return;
+  if(!EVENT.hostSeen || !EVENT.hostOpen || EVENT.paused || !EVENT.endAt) return;
+  if(EVENT.secondsLeft()<=0) return;
+  REG.on=false; clearInterval(REG.beatId); clearReg(); lockForm(false);
+  beginGame(false);
+}
 $('startBtn').addEventListener('click',()=>{
+  if(REG.on) return;
   if(!validateRegistration()) return;
   assignVariant();
-  beginGame(false);
+  if(!hostControlled()){ beginGame(false); return; }
+  registerTeam();
+  if(!state.started) setTimeout(()=>showEggToast('✅ '+state.team+' registered · Set '+state.variant+'. The game opens when the organiser starts.'),200);
+});
+$('unregBtn').addEventListener('click',()=>{
+  if(!REG.on) return;
+  const url=resolveSheetUrl();
+  if(url){ try{ fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({kind:'leave',teamKey:teamKey()}),keepalive:true}); }catch(e){} }
+  REG.on=false; clearInterval(REG.beatId); clearReg(); lockForm(false);
+  if(!codeLocked){ $('setBadge').textContent='?'; $('setBadge').classList.remove('assigned'); }
+  $('teamNameInput').focus();
 });
 
 function beginGame(resuming){
@@ -1974,7 +2016,7 @@ function beginGame(resuming){
     } else { state.timeLeft=RUN_SECONDS; state.startedAtSec=RUN_SECONDS; }
     state.deadline=Date.now()+state.timeLeft*1000;
   }
-  state.started=true; state.finished=false; lastVisible=null; peekId=null;
+  state.started=true; state.finished=false; lastVisible=null; peekId=null; HOST.endedByHost=false;
   $('startScreen').style.display='none'; $('winScreen').classList.remove('show'); $('gameArea').style.display='block';
   window.scrollTo({top:0,behavior:'smooth'});
   renderMap(); renderSkippedPanel(); updateHud(); syncToggles();
@@ -2073,6 +2115,7 @@ function finishGame(won,reason){
     $('resultTitle').textContent="TIME'S UP!"; $('resultIcon').textContent='⏳';
     sub.textContent=`The clock won this round — you charted ${state.completed.size} of ${ISLANDS.length} islands. Your run still counts.`;
   }
+  state.score=Math.max(0,state.score); updateHud();
   const badges = won ? computeAchievements(timeUsed) : [];
   $('badgesPanel').style.display = badges.length ? 'block' : 'none';
   $('badgesList').innerHTML = badges.map(([i,l])=>`<span class="badge-chip">${i} ${l}</span>`).join('');
@@ -2110,6 +2153,11 @@ $('playAgainBtn').addEventListener('click',()=>{
   $('winScreen').classList.remove('show'); $('startScreen').style.display='block';
   $('timerVal').textContent=formatTime(RUN_SECONDS); updateHud(); $('crewVal').textContent='—';
   window.scrollTo({top:0,behavior:'smooth'});
+  /* back in the lobby: listen to the host console again for the next round */
+  HOST.endedByHost=false; fetchHostConfig(); startHostPolling(5000);
+  REG.on=false; clearInterval(REG.beatId); clearReg(); lockForm(false);
+  $('teamNameInput').value=''; readMembers().forEach(m=>{ m.nEl.value=''; m.eEl.value=''; });
+  if(!codeLocked){ $('setBadge').textContent='?'; $('setBadge').classList.remove('assigned'); }
 });
 
 /* ================= RESULTS → ORGANISER =================
@@ -2118,7 +2166,7 @@ $('playAgainBtn').addEventListener('click',()=>{
 /* Paste your Cloudflare Worker address here, e.g.
    const SHEET_URL = "https://data-hunt-host.yourname.workers.dev";
    Then the host console is at that address + /host */
-const SHEET_URL = "";
+const SHEET_URL = "https://data-hunt-host.nitesh290907.workers.dev";
 
 const SHEET_URL_KEY='datahunt_sheet_url', PENDING_KEY='datahunt_pending_results';
 function resolveSheetUrl(){
@@ -2179,6 +2227,7 @@ function applyHostConfig(cfg){
     tick();
     if(left<=0 && !EVENT.paused && !HOST.endedByHost){ HOST.endedByHost=true; finishGame(false,'timeup'); }
   }
+  maybeAutoStart();
   return true;
 }
 async function fetchHostConfig(){
@@ -2192,7 +2241,7 @@ async function fetchHostConfig(){
 function attemptedCount(){ return ISLANDS.filter(i=>state.completed.has(i.key)||(state.attempts[i.key]|0)>0).length; }
 function teamKey(){ return (state.team+'|'+(state.members||[]).map(m=>m.email).join(',')).toLowerCase(); }
 function sendHeartbeat(status){
-  const url=resolveSheetUrl(); if(!url || !state.started || !state.team) return;
+  const url=resolveSheetUrl(); if(!url || !state.team || !(state.started || REG.on)) return;
   const m=state.members||[];
   const body=JSON.stringify({kind:'live',teamKey:teamKey(),team:state.team,members:m.map(x=>x.name).join(', '),emails:m.map(x=>x.email).join(', '),
     set:state.variant,score:state.score,islands:state.completed.size,attempted:attemptedCount(),hints:Object.keys(state.hintUsed).filter(k=>state.hintUsed[k]).length,
@@ -2209,20 +2258,40 @@ document.querySelectorAll('.max-score-val').forEach(el=>el.textContent=MAX_SCORE
 
 /* start-screen banner + lobby lock */
 (function eventClockUI(){
-  const banner=$('eventClockBanner'), btn=$('startBtn'), label=btn.textContent;
+  const banner=$('eventClockBanner'), btn=$('startBtn');
   const fmt=s=>{ s=Math.max(0,s); const h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60; return (h?h+'h ':'')+m+'m '+String(x).padStart(2,'0')+'s'; };
   function refresh(){
     if(state.started) return;
-    const now=Date.now(), left=EVENT.hasEnd?EVENT.secondsLeft():null;
+    maybeAutoStart(); if(state.started) return;
+    const now=Date.now(), left=EVENT.hasEnd?EVENT.secondsLeft():null, ctl=hostControlled();
+    const label=ctl?'Register team →':'Begin the Hunt →';
     const show=(html,disabled,text)=>{ banner.innerHTML=html; banner.style.display='block'; btn.disabled=!!disabled; btn.textContent=text||label; };
-    if(EVENT.hostSeen && EVENT.hostOpen===false) return show('✋ <b>Waiting for the organiser to open the hunt.</b><br>Fill in your team now — this unlocks by itself, so keep the page open.'+(EVENT.hasEnd?'<br>Everyone finishes at <b>'+EVENT.endLabel+'</b>.':''),true,'Waiting for the organiser…');
-    if(EVENT.hostSeen && EVENT.paused) return show('⏸ <b>The organiser has paused the hunt.</b><br>Keep this page open — START unlocks by itself when the clock resumes.',true,'Paused by the organiser');
-    if(EVENT.hasStart && now<EVENT.startAt.getTime()) return show('⏳ <b>The hunt opens at '+EVENT.startLabel+'.</b><br>Starting in <b style="color:var(--gold)">'+fmt(Math.round((EVENT.startAt-now)/1000))+'</b>'+(EVENT.hasEnd?'<br>Everyone finishes at <b>'+EVENT.endLabel+'</b>.':''),true,'Locked until '+EVENT.startLabel);
-    if(EVENT.hasEnd && left<=0) return show('🛑 <b>This event finished at '+EVENT.endLabel+'.</b><br>Ask the organiser for a fresh link.',true,'Event closed');
-    if(EVENT.hasEnd){ $('timerVal').textContent=formatTime(left); return show('⏰ <b>Hard finish: '+EVENT.endLabel+'</b> — set by the organiser.<br>Starting late means <b style="color:var(--amber)">less</b> time, not extra.<br>Time available if you start now: <b style="color:var(--gold)">'+fmt(left)+'</b>'); }
-    if(EVENT.hostSeen && EVENT.hostOpen===true) return show('✅ <b>The organiser has opened the hunt.</b><br>You have <b>'+RUN_MINUTES+' minutes</b> from the moment you press start.');
+    const ended=EVENT.hostSeen && EVENT.hostOpen && !EVENT.paused && EVENT.hasEnd && left<=0;
+    if(REG.on){
+      if(ended) return show('🏁 <b>This round has finished.</b><br>You are registered as <b>'+escapeHtml(state.team)+'</b> · Set <b>'+state.variant+'</b> — you will join the next round automatically when the organiser starts it.',true,'✅ Registered — waiting for the next round');
+      if(EVENT.paused) return show('⏸ <b>The organiser has paused the hunt.</b><br>You are registered — the game opens by itself when the clock resumes.',true,'✅ Registered — paused');
+      return show('✅ <b>Registered: '+escapeHtml(state.team)+' · Set '+state.variant+'</b><br>Keep this page open. The game opens <b>by itself</b> the moment the organiser starts the hunt.',true,'✅ Registered — waiting for the organiser…');
+    }
+    if(ctl && !EVENT.hostSeen) return show('📡 <b>Connecting to the organiser…</b><br>Fill in your team and register — you can register now.',false);
+    if(EVENT.hostSeen && EVENT.hostOpen===false) return show('📝 <b>Register your team now.</b><br>The organiser starts everyone together — the game opens by itself, so keep the page open after registering.',false);
+    if(EVENT.hostSeen && EVENT.paused) return show('⏸ <b>The organiser has paused the hunt.</b><br>You can still register — the game opens when the clock resumes.',false);
+    if(EVENT.hasStart && now<EVENT.startAt.getTime()) return show('⏳ <b>The hunt opens at '+EVENT.startLabel+'.</b><br>Starting in <b style="color:var(--gold)">'+fmt(Math.round((EVENT.startAt-now)/1000))+'</b>'+(EVENT.hasEnd?'<br>Everyone finishes at <b>'+EVENT.endLabel+'</b>.':''),!ctl,ctl?label:'Locked until '+EVENT.startLabel);
+    if(EVENT.hasEnd && left<=0) return show('🛑 <b>This round has finished.</b><br>Wait for the organiser to start the next round.',true,'Round closed');
+    if(EVENT.hasEnd){ $('timerVal').textContent=formatTime(left); return show('⏰ <b>The hunt is running — hard finish '+EVENT.endLabel+'.</b><br>Register now and you go straight in, with <b style="color:var(--gold)">'+fmt(left)+'</b> left.'); }
+    if(EVENT.hostSeen && EVENT.hostOpen===true) return show('✅ <b>The organiser has opened the hunt.</b><br>You have <b>'+RUN_MINUTES+' minutes</b> from the moment you start.');
     banner.style.display='none'; btn.disabled=false; btn.textContent=label;
   }
+  /* reloading the page keeps the registration */
+  (function restoreRegistration(){
+    const r=loadReg(), saved=loadSaved();
+    if(!r || !r.team || !Array.isArray(r.members) || (saved && saved.team) || !hostControlled()) return;
+    if(Date.now()-(r.at||0)>12*3600*1000){ clearReg(); return; }
+    state.team=r.team; state.members=r.members; state.email=(r.members[0]||{}).email||'';
+    $('teamNameInput').value=r.team;
+    readMembers().forEach((m,i)=>{ if(r.members[i]){ m.nEl.value=r.members[i].name; m.eEl.value=r.members[i].email; } });
+    setVariant(codeLocked?state.variant:(r.variant||assignVariant()),true);
+    registerTeam();
+  })();
   refresh(); setInterval(refresh,1000);
 })();
 
