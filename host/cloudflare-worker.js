@@ -190,6 +190,11 @@ export default {
           const row = await db.prepare('SELECT allowed_level FROM teams_3l WHERE round=? AND team_key=?').bind(ev.round, str(tk, 300).toLowerCase()).first();
           cfg.me = row ? { known: true, allowed: row.allowed_level | 0 } : { known: false, allowed: 0 };
         }
+        // after Level 3 has ended (+15 s for the last results to arrive) every player sees the champions
+        if ((ev.level | 0) === 3 && !ev.paused && ev.end_at && now > ev.end_at + 15000) {
+          const w = await db.prepare('SELECT t.team AS team, SUM(l.score) AS total, SUM(l.time_sec) AS time, SUM(l.solved) AS solved FROM levels_3l l JOIN teams_3l t ON t.round = l.round AND t.team_key = l.team_key WHERE l.round = ? AND t.allowed_level >= 3 GROUP BY l.team_key ORDER BY total DESC, time ASC LIMIT 3').bind(ev.round).all();
+          cfg.winners = w.results;
+        }
         return json(cfg);
       }
       if (req.method === 'POST' && path === '/') {

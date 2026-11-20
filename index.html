@@ -302,6 +302,13 @@ html[data-motion="on"] #levelSplash.show .big{animation:introRise .9s cubic-bezi
 .ds-note{margin:10px auto 0;max-width:680px;font-size:12.5px;color:var(--mist);border:1px dashed var(--line2);border-radius:10px;padding:9px 12px;line-height:1.6}
 #offlineUnlock{margin-top:18px;font-size:12px;color:var(--dim)}
 #offlineUnlock button{background:none;border:0;color:var(--dim);text-decoration:underline;cursor:pointer;font-size:12px}
+
+.champ-card{border-color:rgba(255,210,74,.55);box-shadow:0 0 0 1px rgba(255,210,74,.15),0 20px 60px -30px rgba(255,210,74,.5)}
+.champ-row{display:grid;grid-template-columns:34px 1fr auto auto;gap:12px;align-items:center;padding:10px 6px;border-bottom:1px dashed var(--line);font-size:15px}
+.champ-row:last-child{border-bottom:0}
+.champ-row .m{font-size:22px}.champ-row .t{font-weight:700;text-align:left}.champ-row .p{font-family:var(--font-mono);color:var(--gold);font-weight:700}.champ-row .tm{font-family:var(--font-mono);color:var(--mist);font-size:13px}
+.champ-row.first .t{color:var(--gold);font-size:18px}
+.champ-row.me{background:rgba(53,211,154,.08);border-radius:10px}
 </style>
 </head>
 <body data-level="1">
@@ -499,6 +506,7 @@ html[data-motion="on"] #levelSplash.show .big{animation:introRise .9s cubic-bezi
     <h2 id="outTitle" style="font-family:var(--font-display);font-weight:900;font-size:clamp(28px,5vw,44px);color:var(--gold);letter-spacing:.06em;margin:12px 0 6px">HUNT COMPLETE</h2>
     <p class="lede" id="outSub" style="margin-bottom:0"></p>
     <div class="result-grid" id="outStats"></div>
+    <div class="card result-card champ-card" id="champCard" style="display:none"></div>
     <div class="card result-card" id="outLevels"></div>
     <div class="card result-card"><h3>📤 Result submission</h3><div class="sub" id="submitStatus2">Your results are with the organiser.</div></div>
     <button class="btn secondary" id="playAgainBtn" style="margin-top:8px">Back to start</button>
@@ -1316,7 +1324,7 @@ function showOut(level){
   $('outStats').innerHTML=[['Total score',totalScore(),'gold'],['Questions solved',Object.values(state.results).reduce((s,r)=>s+r.solved,0)],['Levels played',Object.keys(state.results).length]]
     .map(([k,v,c])=>`<div class="stat"><div class="k">${k}</div><div class="v ${c||''}">${escapeHtml(v)}</div></div>`).join('');
   $('outLevels').innerHTML=levelTable(); $('submitStatus2').innerHTML='Your results are with the organiser.';
-  updateHud(); showScreen('out');
+  updateHud(); showScreen('out'); renderChampions();
 }
 function showFinal(reason){
   const allSolved=Object.values(state.results).reduce((s,r)=>s+r.solved,0);
@@ -1329,6 +1337,7 @@ function showFinal(reason){
   $('timerVal').textContent='--:--'; $('timerChip').classList.remove('critical','warn');
   updateHud(); showScreen('out');
   if(state.results[3].solved===5){ SoundFX.fanfare(); spawnCoinRain(); } else SoundFX.stop();
+  renderChampions();
 }
 $('playAgainBtn').addEventListener('click',()=>{
   if(!confirm('Go back to the start screen? This device forgets the current team.')) return;
@@ -1338,6 +1347,7 @@ function wipeTeam(){
   clearProgress(); clearReg(); REG.on=false; clearInterval(REG.beatId); clearInterval(state.timerId); clearInterval(HOST.beatId);
   resetLevelState();
   Object.assign(state,{team:'',members:[],email:'',sets:{},phase:'lobby',level:0,results:{},round:null,hostClock:false});
+  champCelebrated=false; $('champCard').style.display='none';
   lockForm(false); $('teamNameInput').value=''; readMembers().forEach(m=>{ m.nEl.value=''; m.eEl.value=''; });
   document.body.setAttribute('data-level','1'); $('timerVal').textContent='--:--'; updateHud(); renderLevelCards();
 }
@@ -1366,6 +1376,19 @@ function maybeAdvance(){
   if(!me.known) return;                       // server has not seen this team yet
   if(allowed>=lvl){ if(EVENT.running()) startLevel(lvl,false); }
   else if(state.phase==='waiting') showOut(lvl);
+}
+
+/* ================= CHAMPIONS (shown to every team when the hunt ends) ================= */
+let champCelebrated=false;
+function renderChampions(){
+  const card=$('champCard'), w=EVENT.winners;
+  if(!w || !(state.phase==='out'||state.phase==='done')){ card.style.display='none'; return; }
+  const medals=['🥇','🥈','🥉'], mine=i=>w[i] && state.team && w[i].team===state.team;
+  card.innerHTML='<h3>🏆 DATA HUNT champions</h3><div class="sub" style="margin-bottom:8px">Highest total score wins · a tie goes to the team that used less time</div>'+
+    w.map((t,i)=>`<div class="champ-row${i===0?' first':''}${mine(i)?' me':''}"><span class="m">${medals[i]}</span><span class="t">${escapeHtml(t.team)}${mine(i)?' <b>(you)</b>':''}</span><span class="p">${t.total|0} pts</span><span class="tm">${formatTime(t.time|0)}</span></div>`).join('');
+  card.style.display='block';
+  if(mine(0)){ $('outIcon').textContent='🏆👑'; $('outTitle').textContent='YOU WON THE DATA HUNT!'; }
+  if(!champCelebrated){ champCelebrated=true; if(mine(0)){ SoundFX.fanfare(); spawnCoinRain(); } else SoundFX.unlock(); }
 }
 
 /* ================= RESULTS → ORGANISER ================= */
@@ -1415,6 +1438,8 @@ function applyHostConfig(cfg){
   EVENT.paused=!!cfg.paused; EVENT.pausedLeft=Number(cfg.pausedLeft)||0;
   const end=cfg.endAt?new Date(cfg.endAt):null; EVENT.endAt=(end&&!isNaN(end))?end.getTime():null;
   EVENT.me=cfg.me||null;
+  EVENT.winners=Array.isArray(cfg.winners)&&cfg.winners.length?cfg.winners:null;
+  renderChampions();
   if(state.phase==='playing' && state.hostClock && EVENT.level===state.level){
     const left=EVENT.secondsLeft(), spent=Math.max(0,(state.startedAtSec||0)-state.timeLeft);
     if(!EVENT.paused){ state.startedAtSec=left+spent; state.timeLeft=left; }

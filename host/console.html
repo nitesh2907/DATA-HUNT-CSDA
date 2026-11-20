@@ -104,6 +104,37 @@ tr.elim td{opacity:.45}
 .gate .err{color:var(--bad);min-height:22px;margin-top:10px;font-size:14px}
 .flash{animation:flash 1s ease 3}
 @keyframes flash{50%{background:rgba(255,210,74,.12)}}
+
+/* ---------- main screen (projector) ---------- */
+body.screenmode #app > :not(#screen){display:none!important}
+#screen{padding:10px 4px}
+.sc-top{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}
+.sc-brand{font:900 clamp(28px,4vw,46px) var(--display);color:var(--gold);letter-spacing:.08em}
+.sc-brand small{display:block;font:600 clamp(11px,1.2vw,15px) var(--body);letter-spacing:.2em;color:var(--mist);text-transform:uppercase}
+.sc-level{font:900 clamp(22px,3.2vw,40px) var(--display);letter-spacing:.08em;padding:8px 22px;border-radius:14px;border:2px solid currentColor}
+.sc-level.l0{color:var(--gold)} .sc-level.l1{color:var(--l1)} .sc-level.l2{color:var(--l2)} .sc-level.l3{color:var(--l3)}
+.sc-clock{font:700 clamp(90px,17vw,220px)/1 var(--mono);text-align:center;margin:18px 0 4px;font-variant-numeric:tabular-nums}
+.sc-phase{text-align:center;font:700 clamp(18px,2.2vw,28px) var(--body);margin-bottom:18px}
+.sc-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:18px}
+.sc-tiles .tile .v{font-size:clamp(34px,4.5vw,60px)}
+.sc-tiles .tile .label{font-size:clamp(11px,1.1vw,14px)}
+.sc-legend{display:flex;gap:18px;flex-wrap:wrap;justify-content:center;color:var(--mist);font-size:clamp(13px,1.3vw,17px);margin-bottom:12px}
+.sc-legend i{display:inline-block;width:14px;height:14px;border-radius:4px;margin-right:6px;vertical-align:-2px}
+.sc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px}
+.chip{border-radius:12px;padding:10px 14px;font:700 clamp(14px,1.4vw,19px) var(--body);border:2px solid;display:flex;justify-content:space-between;gap:8px;align-items:center;min-width:0}
+.chip span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chip small{font:600 clamp(11px,1.1vw,14px) var(--mono);opacity:.85;flex:none}
+.chip.in{color:var(--ok);border-color:rgba(53,211,154,.6);background:rgba(53,211,154,.08)}
+.chip.play{color:var(--cyan);border-color:rgba(127,227,245,.5);background:rgba(127,227,245,.06)}
+.chip.reg{color:var(--gold);border-color:rgba(255,210,74,.5);background:rgba(255,210,74,.06)}
+.chip.out{color:#7d7590;border-color:#3b3249;background:#16131c;text-decoration:line-through;text-decoration-color:rgba(255,255,255,.25)}
+.sc-final{text-align:center}
+.sc-final .crown{font-size:clamp(60px,9vw,110px);line-height:1.15;margin-bottom:6px}
+.sc-final .wname{font:900 clamp(40px,7vw,96px) var(--display);color:var(--gold);letter-spacing:.04em;text-shadow:0 0 50px var(--goldGlow)}
+.sc-final .wmeta{font:700 clamp(18px,2.4vw,32px) var(--mono);color:var(--text);margin:6px 0 22px}
+.sc-final .runners{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;max-width:900px;margin:0 auto 22px}
+.sc-final .runners .tile .v{font-size:clamp(22px,2.6vw,34px);font-family:var(--body)}
+.sc-exit{position:fixed;top:10px;right:12px;opacity:.35} .sc-exit:hover{opacity:1}
 </style>
 </head>
 <body>
@@ -119,10 +150,21 @@ tr.elim td{opacity:.45}
 </div>
 
 <div class="wrap" id="app" hidden>
+  <section id="screen" hidden>
+    <div class="sc-top"><div class="sc-brand">DATA HUNT<small>Computer Science with Data Analytics · SRCAS</small></div><div class="sc-level l0" id="scLevel">REGISTRATION</div></div>
+    <div class="sc-clock" id="scClock">--:--</div>
+    <div class="sc-phase" id="scPhase"></div>
+    <div class="sc-final" id="scFinal" hidden></div>
+    <div class="sc-tiles" id="scTiles"></div>
+    <div class="sc-legend" id="scLegend"></div>
+    <div class="sc-grid" id="scGrid"></div>
+    <button class="small sc-exit" id="scExit">✕</button>
+  </section>
   <header>
     <h1>DATA HUNT<small>Host console · 3 levels · Round <span id="roundNo">1</span></small></h1>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <span class="pill"><span class="dot" id="connDot"></span><span id="connText">Connecting…</span></span>
+      <button class="small gold" id="screenBtn" title="Open a big read-only view for the hall projector">📺 Main screen</button>
       <button class="small" id="lockBtn">Lock console</button>
     </div>
   </header>
@@ -445,6 +487,66 @@ function renderAll(){
     allDoneSpoken = true; say('All teams have finished level ' + L + '. You can end the level now.'); toast('✅ Every team has finished Level ' + L);
   }
   if (playing > 0) allDoneSpoken = false;
+  renderScreen(rows);
+}
+
+
+/* ---------- main screen (projector view) ---------- */
+const SCREEN = new URLSearchParams(location.search).get('view') === 'screen';
+$('screenBtn').onclick = () => window.open(location.pathname + '?view=screen', 'dhscreen');
+if (SCREEN) {
+  document.body.classList.add('screenmode'); $('screen').hidden = false; $('voiceChk').checked = false;
+  document.title = 'DATA HUNT — Main screen';
+  $('scExit').onclick = () => { if (document.fullscreenElement) document.exitFullscreen(); else window.close(); };
+  $('screen').addEventListener('dblclick', () => { try{ document.documentElement.requestFullscreen(); }catch(e){} });
+}
+function chip(cls, name, extra){ return `<div class="chip ${cls}"><span>${esc(name)}</span>${extra ? '<small>' + esc(extra) + '</small>' : ''}</div>`; }
+function renderScreen(rows){
+  if (!SCREEN) return;
+  const ph = phaseOf(cfg), L = LVL(), left = secondsLeft(cfg);
+  $('scLevel').className = 'sc-level l' + L;
+  $('scLevel').textContent = L ? 'LEVEL ' + L + ' · ' + TAG[L].toUpperCase() : 'REGISTRATION';
+  const clock = $('scClock');
+  clock.textContent = ph === 'idle' ? '--:--' : fmt(left);
+  clock.className = 'sc-clock clock ' + (ph === 'running' ? (left <= 60 ? 'crit' : left <= 300 ? 'warn' : 'running') : ph);
+  const final = L === 3 && ph === 'ended', checkpoint = ph === 'ended' && L >= 1 && L < 3;
+  clock.hidden = final || checkpoint;
+  let phase = '', tiles = [], legend = '', grid = '';
+  const tile = (cls, label, v) => `<div class="tile ${cls}"><div class="label">${label}</div><div class="v">${v}</div></div>`;
+  if (ph === 'idle') {
+    phase = '📝 Registration is open — the hunt starts soon';
+    tiles = [tile('gold', 'Teams registered', rows.length), tile('', 'Players', rows.reduce((n, t) => n + playersOf(t).length, 0))];
+    grid = rows.map(t => chip('reg', t.team)).join('');
+  } else if (checkpoint) {
+    const rule = LS.get('dh_qrule') || 'min'; $('qRule').value = rule; $('qVal').value = LS.get('dh_qval') || (rule === 'min' ? 3 : 10);
+    try{ overrides = JSON.parse(LS.get('dh_ovr') || '{}'); }catch(e){}
+    const q = qualifiers(rows, L);
+    const pass = q.pool.filter(t => q.pass.has(t.team_key)).sort((a, b) => b.total - a.total);
+    const fail = rows.filter(t => !q.pass.has(t.team_key));
+    phase = '🛑 Level ' + L + ' is over — green teams go to Level ' + (L + 1);
+    tiles = [tile('ok', 'Qualified for Level ' + (L + 1), pass.length), tile('bad', 'Out of the game', fail.length)];
+    legend = `<span><i style="background:var(--ok)"></i>Qualified → Level ${L + 1}</span><span><i style="background:#3b3249"></i>Out of the game</span>`;
+    grid = pass.map(t => chip('in', t.team, t.r[L] ? t.r[L].solved + '/5' : '')).join('') + fail.map(t => chip('out', t.team, '')).join('');
+  } else if (final) {
+    const f = rows.filter(t => t.r[3] || t.allowed >= 3).sort((a, b) => b.total - a.total || a.sumTime - b.sumTime);
+    phase = '';
+    const w = f[0];
+    $('scFinal').innerHTML = w ? `<div class="crown">🏆</div><div class="label" style="font-size:16px">Winner</div><div class="wname">${esc(w.team)}</div>
+      <div class="wmeta">${w.total} points · ${w.sumSolved}/15 solved · ${fmt(w.sumTime)}</div>
+      <div class="runners">${f.slice(1, 3).map((t, i) => `<div class="tile gold"><div class="label">${i ? '🥉 Third' : '🥈 Runner-up'}</div><div class="v">${esc(t.team)}</div><div class="sub">${t.total} pts · ${fmt(t.sumTime)}</div></div>`).join('')}</div>` : '<div class="wname">Hunt over</div>';
+    grid = f.slice(3).map((t, i) => chip('in', (i + 4) + '. ' + t.team, t.total + ' pts')).join('');
+  } else {
+    const inL = rows.filter(t => t.allowed >= L && t.st.k !== 'nostart'), outL = rows.filter(t => t.allowed < L || t.st.k === 'nostart');
+    const playing = inL.filter(t => t.st.k === 'play' || t.st.k === 'reg'), done = inL.filter(t => t.st.k === 'wait' || t.st.k === 'done');
+    phase = ph === 'paused' ? '⏸ Paused by the organiser' : '🟢 Level ' + L + ' is running';
+    tiles = [tile('gold', 'Teams in Level ' + L, inL.length), tile('cyan', 'Playing', playing.length), tile('ok', 'Finished — waiting', done.length)];
+    if (L > 1) tiles.push(tile('bad', 'Out of the game', outL.length));
+    legend = `<span><i style="background:var(--cyan)"></i>Playing</span><span><i style="background:var(--ok)"></i>Finished level ${L}</span>` + (L > 1 ? '<span><i style="background:#3b3249"></i>Out of the game</span>' : '');
+    grid = playing.map(t => chip('play', t.team)).join('') + done.map(t => chip('in', t.team, '✓')).join('') + (L > 1 ? outL.map(t => chip('out', t.team)).join('') : '');
+  }
+  $('scPhase').textContent = phase;
+  $('scFinal').hidden = !final;
+  $('scTiles').innerHTML = tiles.join(''); $('scLegend').innerHTML = legend; $('scGrid').innerHTML = grid;
 }
 
 /* ---------- announcements ---------- */
@@ -468,6 +570,7 @@ function say(text){
 }
 let actx = null;
 function beep(){
+  if (SCREEN) return;
   try{
     actx = actx || new (window.AudioContext || window.webkitAudioContext)();
     [0, .28, .56].forEach((t, i) => { const o = actx.createOscillator(), g = actx.createGain(); o.type = 'square'; o.frequency.value = i === 2 ? 660 : 880; g.gain.setValueAtTime(.0001, actx.currentTime + t); g.gain.exponentialRampToValueAtTime(.18, actx.currentTime + t + .02); g.gain.exponentialRampToValueAtTime(.0001, actx.currentTime + t + .24); o.connect(g).connect(actx.destination); o.start(actx.currentTime + t); o.stop(actx.currentTime + t + .26); });
@@ -514,8 +617,8 @@ $('tbody').addEventListener('change', e => {
   const c = e.target.closest('[data-q]'); if (!c) return;
   overrides[c.dataset.q] = c.checked; LS.set('dh_ovr', JSON.stringify(overrides)); renderAll();
 });
-$('qRule').onchange = () => { $('qVal').value = $('qRule').value === 'min' ? 3 : 10; LS.set('dh_qrule', $('qRule').value); renderAll(); };
-$('qVal').oninput = renderAll;
+$('qRule').onchange = () => { $('qVal').value = $('qRule').value === 'min' ? 3 : 10; LS.set('dh_qrule', $('qRule').value); LS.set('dh_qval', $('qVal').value); renderAll(); };
+$('qVal').oninput = () => { LS.set('dh_qval', $('qVal').value); renderAll(); };
 $('qResetOverrides').onclick = () => { overrides = {}; LS.set('dh_ovr', '{}'); renderAll(); };
 $('revealChk').onchange = renderAll;
 $('minsInput').oninput = renderClock;
@@ -556,8 +659,8 @@ $('csvBtn').onclick = () => {
 /* ---------- loops ---------- */
 async function refresh(){ try{ const d = await api('/api/host/board'); if (d.ok) applyBoard(d); }catch(e){} }
 let loopsOn = false;
-function startLoops(){ if (loopsOn) return; loopsOn = true; setInterval(refresh, 3000); setInterval(() => { if (cfg) renderClock(); }, 250); }
-(function(){ const r = LS.get('dh_qrule'); if (r) { $('qRule').value = r; $('qVal').value = r === 'min' ? 3 : 10; } })();
+function startLoops(){ if (loopsOn) return; loopsOn = true; setInterval(refresh, 3000); setInterval(() => { if (cfg) { renderClock(); if (SCREEN) { const c = $('scClock'), ph = phaseOf(cfg); if (ph === 'running' || ph === 'paused') c.textContent = fmt(secondsLeft(cfg)); } } }, 250); }
+(function(){ const r = LS.get('dh_qrule'); if (r) { $('qRule').value = r; $('qVal').value = LS.get('dh_qval') || (r === 'min' ? 3 : 10); } })();
 
 if (PIN) tryPin(PIN); else $('pinInput').focus();
 </script>
